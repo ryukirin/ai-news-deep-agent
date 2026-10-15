@@ -1,0 +1,5 @@
+langchain-openai
+deepagents
+python-dotenv
+tavily-python
+# requires Python >= 3.11

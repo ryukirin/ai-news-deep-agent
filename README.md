@@ -30,6 +30,7 @@
 
 - 搜索类别固定为新闻（`topic="news"`）。
 - 新增 `get_current_time` 工具，模型可以调用它获取当前日期和时间。
+- 运行结束后打印 `todos` 状态，用来确认模型是否调用了 `write_todos`。
 - 环境变量统一在 `config.py` 中读取，`.env` 由 `python-dotenv` 加载。
 
 ## 前置条件
@@ -90,7 +91,12 @@ pip install -r requirements.txt
 python agent.py
 ```
 
-问题写在 `agent.py` 的 `agent.invoke()` 中，当前为“搜一下最近的AI新闻”。修改 `content` 可以换成其他问题。运行结束后，终端打印 Agent 的最终回答（中文 Markdown，按主题分组，附来源链接）。
+问题写在 `agent.py` 的 `agent.invoke()` 中，当前为“先搜一下最近的AI新闻，然后看看这些有没有重复的，最后帮我总结一下”。修改 `content` 可以换成其他问题。
+
+运行结束后，终端依次打印：
+
+1. Agent 的最终回答。
+2. `todos` 状态中的任务列表和每项任务的状态。模型没有调用 `write_todos` 时，打印“本次没有 todos 状态”。
 
 ## 已知限制
 

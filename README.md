@@ -1,6 +1,6 @@
 # ai-news-deep-agent
 
-用 [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview) 搭建的 AI 新闻助理。Agent 调用 Tavily 搜索新闻，再用中文按主题汇总。
+用 [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview) 搭建的 AI 新闻助理。Agent 调用 Tavily 搜索新闻，与历史记录比对去重后，把新新闻追加到历史记录，再把汇总报告写入 `report/` 目录。
 
 本项目是 Datawhale 课程 [Deep Agents 实战](https://github.com/datawhalechina/deepagents-in-action) 的学习项目。
 
@@ -10,14 +10,14 @@
 | --- | --- |
 | 第 1 章 [从 Agent Framework 到 Agent Harness](https://datawhalechina.github.io/deepagents-in-action/chapters/ch01-agent-harness/) | 已完成 |
 | 第 2 章 [快速上手](https://datawhalechina.github.io/deepagents-in-action/chapters/ch02-quickstart/) | 已完成 |
-| 第 3 章 [虚拟文件系统](https://datawhalechina.github.io/deepagents-in-action/chapters/ch03-virtual-filesystem/) | 进行中（虚拟文件系统与七个内置文件工具） |
+| 第 3 章 [虚拟文件系统](https://datawhalechina.github.io/deepagents-in-action/chapters/ch03-virtual-filesystem/) | 进行中（可插拔的存储后端） |
 | 第 4 至 16 章 | 未开始 |
 
-进度更新于 2026-10-13。
+进度更新于 2026-10-17。
 
 ## 与课程的对应
 
-`agent.py` 和 `tool.py` 基于第 2 章的研究助手示例修改。第 2 章内容在本项目中的位置：
+`agent.py` 和 `tool.py` 基于第 2 章的研究助手示例修改，存储后端部分参照第 3 章。第 2 章内容在本项目中的位置：
 
 | 课程内容 | 本项目 |
 | --- | --- |
@@ -26,12 +26,22 @@
 | 显式加入 `TodoListMiddleware`，启用 `write_todos` 任务规划 | `agent.py` |
 | LangSmith 追踪 | `.env.example` 中的 `LANGSMITH_*` 变量 |
 
+第 3 章内容在本项目中的位置：
+
+| 课程内容 | 本项目 |
+| --- | --- |
+| `CompositeBackend` 按路径前缀路由 | `agent.py` |
+| `StateBackend` 作为默认后端 | `agent.py` |
+| `StoreBackend` 跨会话持久化，本地运行时 namespace 兜底为 `("local-user",)` | `agent.py` 的 `/history/` 路由 |
+| `FilesystemBackend` 写入本地磁盘 | `agent.py` 的 `/report/` 路由 |
+
 课程示例之外的改动：
 
 - 搜索类别固定为新闻（`topic="news"`）。
 - 新增 `get_current_time` 工具，模型可以调用它获取当前日期和时间。
 - 运行结束后打印 `todos` 状态，用来确认模型是否调用了 `write_todos`。
-- 环境变量统一在 `config.py` 中读取，`.env` 由 `python-dotenv` 加载。
+- 环境变量、system prompt（`SYSTEM_PROMPT`）和用户问题（`USER_PROMPT`）统一放在 `config.py` 中，`.env` 由 `python-dotenv` 加载。
+- `StoreBackend` 使用 `SqliteStore`（`news.db`），替代课程示例中的 `InMemoryStore`，历史记录在多次运行之间保留。
 
 ## 前置条件
 
@@ -66,7 +76,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` 没有固定版本号。2026-10-15 验证时安装的版本为 deepagents 0.7.25、langchain 1.4.6、langchain-openai 1.7.2、tavily-python 0.8.5。
+`requirements.txt` 没有固定版本号。2026-10-17 验证时安装的版本为 deepagents 0.7.25、langchain 1.4.6、langchain-openai 1.7.2、langgraph 1.2.15、langgraph-checkpoint-sqlite 3.1.2、tavily-python 0.8.5。
 
 ## 配置
 
@@ -91,19 +101,35 @@ pip install -r requirements.txt
 python agent.py
 ```
 
-问题写在 `agent.py` 的 `agent.invoke()` 中，当前为“先搜一下最近的AI新闻，然后看看这些有没有重复的，最后帮我总结一下”。修改 `content` 可以换成其他问题。
+在项目根目录运行。问题写在 `config.py` 的 `USER_PROMPT` 中，当前的步骤为：
+
+1. 搜索最近的 AI 新闻。
+2. 去除搜索结果中的重复新闻。
+3. 与 `/history/news_history.txt` 中的历史新闻比对，把不重复的新闻标题和摘要追加到该文件。
+4. 汇总成报告，文件名为当天日期，写入 `report/` 目录。
 
 运行结束后，终端依次打印：
 
 1. Agent 的最终回答。
 2. `todos` 状态中的任务列表和每项任务的状态。模型没有调用 `write_todos` 时，打印“本次没有 todos 状态”。
 
+Agent 使用的路径与实际存储位置：
+
+| Agent 中的路径 | 实际存储位置 |
+| --- | --- |
+| `/history/news_history.txt` | `news.db`（SQLite）的 `store` 表，namespace 为 `local-user` |
+| `/report/<日期>.md` | `report/<日期>.md` |
+| 其他路径 | Agent 的 state，运行结束后不保留 |
+
 ## 已知限制
 
 - 搜索没有限定时间范围，结果中可能出现一周以前的新闻。
 - system prompt 没有规定来源要求和输出格式，部分条目没有来源链接。
 - 工具没有捕获 Tavily 调用的异常，搜索出错时整个运行会中断。
-- 问题写死在 `agent.py` 中，不支持命令行参数。
+- 问题写死在 `config.py` 中，不支持命令行参数。
+- `news.db` 和 `report/` 按启动目录的相对路径创建，在其他目录运行会在该目录下另建一份。
+- `read_file` 默认读取 100 行。历史记录超过 100 行后，模型不分页读取时只比对前 100 行。
+- 历史记录中的日期有时是新闻发生的日期，有时是写入的日期。
 
 ## 参考
 

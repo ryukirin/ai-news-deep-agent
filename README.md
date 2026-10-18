@@ -11,9 +11,10 @@
 | 第 1 章 [从 Agent Framework 到 Agent Harness](https://datawhalechina.github.io/deepagents-in-action/chapters/ch01-agent-harness/) | 已完成 |
 | 第 2 章 [快速上手](https://datawhalechina.github.io/deepagents-in-action/chapters/ch02-quickstart/) | 已完成 |
 | 第 3 章 [虚拟文件系统](https://datawhalechina.github.io/deepagents-in-action/chapters/ch03-virtual-filesystem/) | 已完成 |
-| 第 4 至 16 章 | 未开始 |
+| 第 4 章 [任务规划与分解](https://datawhalechina.github.io/deepagents-in-action/chapters/ch04-task-planning/) | 已完成 |
+| 第 5 至 16 章 | 未开始 |
 
-进度更新于 2026-10-17。
+进度更新于 2026-10-18。
 
 ## 与课程的对应
 

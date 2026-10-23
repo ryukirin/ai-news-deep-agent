@@ -1,5 +1,5 @@
 from langchain_openai import ChatOpenAI
-from deepagents import create_deep_agent
+from deepagents import FilesystemPermission, create_deep_agent
 from langchain.agents.middleware import TodoListMiddleware, ToolCallLimitMiddleware
 from langgraph.store.sqlite import SqliteStore
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend, FilesystemBackend
@@ -40,6 +40,7 @@ subagents = [
         "description": "对收集到的新闻进行分类和整理",
         "system_prompt": config.NEWS_CATEGORIZER_PROMPT,
         "model": structured_model,
+        "skills": ["/skills/news-categorizer/"],
         "response_format": NewsList,
     },
     {
@@ -47,6 +48,7 @@ subagents = [
         "description": "检查是否属于过往新闻",
         "system_prompt": config.OLD_NEWS_CHECKER_PROMPT,
         "model": structured_model,
+        "skills": ["/skills/old-news-checker/"],
         "response_format": NewsList,
     },
     {
@@ -73,9 +75,17 @@ with SqliteStore.from_conn_string("news.db") as store:
                         ("local-user",)
                     ),
                 ),
-                "/report/": FilesystemBackend(root_dir="report", virtual_mode=True)
+                "/report/": FilesystemBackend(root_dir="report", virtual_mode=True),
+                "/skills/": FilesystemBackend(root_dir="skills", virtual_mode=True),
             }
         ),
+        permissions=[
+            FilesystemPermission(
+                operations=["write"],
+                paths=["/skills/**"],
+                mode="deny",
+            ),
+        ],
         store=store,
         subagents=subagents,
     )

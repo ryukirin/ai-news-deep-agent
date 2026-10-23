@@ -1,6 +1,6 @@
 # ai-news-deep-agent
 
-用 [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview) 搭建的 AI 新闻助理。主 Agent 把收集、查重、旧闻比对、撰写报告四步依次委派给四个子 Agent。新闻用 Tavily 搜索，历史记录存在 SQLite 中，报告写入 `report/` 目录。
+用 [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview) 搭建的 AI 新闻助理。主 Agent 把收集、查重、旧闻比对、撰写报告四步依次委派给四个子 Agent。查重和旧闻比对的规则写在 `skills/` 下的 Skill 中。新闻用 Tavily 搜索，历史记录存在 SQLite 中，报告写入 `report/` 目录。
 
 本项目是 Datawhale 课程 [Deep Agents 实战](https://github.com/datawhalechina/deepagents-in-action) 的学习项目。
 
@@ -13,13 +13,15 @@
 | 第 3 章 [虚拟文件系统](https://datawhalechina.github.io/deepagents-in-action/chapters/ch03-virtual-filesystem/) | 已完成 |
 | 第 4 章 [任务规划与分解](https://datawhalechina.github.io/deepagents-in-action/chapters/ch04-task-planning/) | 已完成 |
 | 第 5 章 [子 Agent 与上下文隔离](https://datawhalechina.github.io/deepagents-in-action/chapters/ch05-subagents/) | 已完成 |
-| 第 6 至 16 章 | 未开始 |
+| 第 6 章 [异步子 Agent](https://datawhalechina.github.io/deepagents-in-action/chapters/ch06-async-subagents/) | 已跳过（选做） |
+| 第 7 章 [Skills](https://datawhalechina.github.io/deepagents-in-action/chapters/ch07-skills/) | 已完成 |
+| 第 8 至 16 章 | 未开始 |
 
-进度更新于 2026-10-19。
+进度更新于 2026-10-24。
 
 ## 与课程的对应
 
-`agent.py` 和 `tool.py` 基于第 2 章的研究助手示例修改，存储后端部分参照第 3 章，子 Agent 部分参照第 5 章。第 2 章内容在本项目中的位置：
+`agent.py` 和 `tool.py` 基于第 2 章的研究助手示例修改，存储后端部分参照第 3 章，子 Agent 部分参照第 5 章，Skill 部分参照第 7 章。第 2 章内容在本项目中的位置：
 
 | 课程内容 | 本项目 |
 | --- | --- |
@@ -45,6 +47,15 @@
 | 多子 Agent 协作 | `config.py` 的 `USER_PROMPT` 按顺序委派 4 个子 Agent |
 | 结构化输出（`response_format`） | `data_model.py` 的 `NewsList`，用于 `news-collector`、`news-categorizer`、`old-news-checker` |
 | 不同子 Agent 用不同模型 | 带 `response_format` 的 3 个子 Agent 使用 `agent.py` 中的 `structured_model` |
+
+第 7 章内容在本项目中的位置：
+
+| 课程内容 | 本项目 |
+| --- | --- |
+| SKILL.md 的结构（frontmatter 中的 `name`、`description` 和正文） | `skills/news-categorizer/news-dedup/SKILL.md`、`skills/old-news-checker/history-check/SKILL.md` |
+| `/skills/` 路由到 `FilesystemBackend` | `agent.py` |
+| 子 Agent 在 spec 的 `skills` 中指定 Skill 来源目录 | `agent.py`。来源目录按子 Agent 名分开，`news-categorizer` 只加载 `news-dedup`，`old-news-checker` 只加载 `history-check` |
+| 只读 Skills（`FilesystemPermission` 拒绝写入 `/skills/**`） | `agent.py` 的 `permissions`。子 Agent 没有设置自己的 `permissions`，继承这条规则 |
 
 课程示例之外的改动：
 
@@ -123,16 +134,16 @@ python agent.py
 
 子 Agent 的设置：
 
-| 子 Agent | system prompt | 返回格式 | 模型 | 搜索次数上限 |
-| --- | --- | --- | --- | --- |
-| `news-collector` | `NEWS_COLLECTOR_PROMPT` | `NewsList` | `structured_model` | 10 |
-| `news-categorizer` | `NEWS_CATEGORIZER_PROMPT` | `NewsList` | `structured_model` | 无 |
-| `old-news-checker` | `OLD_NEWS_CHECKER_PROMPT` | `NewsList` | `structured_model` | 无 |
-| `report-generator` | `REPORT_GENERATOR_PROMPT` | 文本 | 与主 Agent 相同 | 无 |
+| 子 Agent | system prompt | Skill | 返回格式 | 模型 | 搜索次数上限 |
+| --- | --- | --- | --- | --- | --- |
+| `news-collector` | `NEWS_COLLECTOR_PROMPT` | 无 | `NewsList` | `structured_model` | 10 |
+| `news-categorizer` | `NEWS_CATEGORIZER_PROMPT` | `news-dedup` | `NewsList` | `structured_model` | 无 |
+| `old-news-checker` | `OLD_NEWS_CHECKER_PROMPT` | `history-check` | `NewsList` | `structured_model` | 无 |
+| `report-generator` | `REPORT_GENERATOR_PROMPT` | 无 | 文本 | 与主 Agent 相同 | 无 |
 
 子 Agent 没有指定 `tools`，继承主 Agent 的 `internet_search` 和 `get_current_time`。
 
-2026-10-19 的一次运行用时 184 秒，4 个子 Agent 各委派 1 次，共搜索 10 次，历史记录新增 12 条（44 条增至 56 条），生成 `report/2026-10-19.md`。
+2026-10-24 的一次运行用时 273 秒。`news-categorizer` 和 `old-news-checker` 都用 `read_file` 读取了自己的 SKILL.md。查重把 10 条新闻合并为 9 条，旧闻比对剔除 0 条，`old-news-checker` 把 9 条写入历史记录（58 条增至 67 条），生成 `report/2026-10-24.md`。
 
 运行结束后，终端依次打印：
 
@@ -145,17 +156,23 @@ Agent 使用的路径与实际存储位置：
 | --- | --- |
 | `/history/news_history.txt` | `news.db`（SQLite）的 `store` 表，namespace 为 `local-user` |
 | `/report/<日期>.md` | `report/<日期>.md` |
+| `/skills/` 下的路径 | `skills/` 目录，只读 |
 | 其他路径 | Agent 的 state，运行结束后不保留 |
+
+历史记录一行一条，格式为 `日期 | 标题 | 摘要`，由 history-check 的 SKILL.md 规定。
 
 ## 已知限制
 
 - 搜索没有限定时间范围，结果中可能出现一周以前的新闻。
 - `NewsArticle.source` 只记录媒体名称，没有链接字段，报告中不含原文链接。
 - 只有 `news-collector` 限制了搜索次数，主 Agent 和其他子 Agent 调用 `internet_search` 没有上限。
-- 历史记录由哪个 Agent 写入取决于模型。2026-10-19 的运行中由主 Agent 写入，条目里没有 `OLD_NEWS_CHECKER_PROMPT` 要求的来源。
+- 写入历史记录的要求只写在 history-check 的 SKILL.md 中。`old-news-checker` 没有读取 SKILL.md 时不会写入历史记录。
+- 历史记录没有来源字段。摘要中有时会混入比对结论，比如“边界保留、降权”。
+- 主 Agent 没有配置 `skills`，但能通过 `/skills/` 路由直接读取 SKILL.md。2026-10-24 的运行中，主 Agent 在委派前读了两个 SKILL.md。
+- 最终回答中的条数由模型自报，可能与 `news.db` 不一致。2026-10-24 的运行自报历史记录“现共 68 行”，`news.db` 中实际非空行为 67 行。
 - 工具没有捕获 Tavily 调用的异常，搜索出错时整个运行会中断。
 - 问题写死在 `config.py` 中，不支持命令行参数。
-- `news.db` 和 `report/` 按启动目录的相对路径创建，在其他目录运行会在该目录下另建一份。
+- `news.db`、`report/` 和 `skills/` 按启动目录的相对路径解析。在其他目录运行时，会在该目录下另建 `news.db` 和 `report/`，并且一个 Skill 也加载不到（日志报 `path_not_found`）。
 - `read_file` 默认读取 100 行。历史记录超过 100 行后，模型不分页读取时只比对前 100 行。
 - 历史记录中的日期有时是新闻发生的日期，有时是写入的日期。
 

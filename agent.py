@@ -1,13 +1,21 @@
-from langchain_openai import ChatOpenAI
-from deepagents import FilesystemPermission, create_deep_agent
-from langchain.agents.middleware import TodoListMiddleware, ToolCallLimitMiddleware
+import uuid
+
+from langgraph.types import Command
 from langgraph.store.sqlite import SqliteStore
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_openai import ChatOpenAI
+from langchain.agents.middleware import TodoListMiddleware, ToolCallLimitMiddleware
+from deepagents import FilesystemPermission, create_deep_agent
+from deepagents.backends.utils import validate_path
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend, FilesystemBackend
 
 from tool import internet_search, get_current_time
 import config
 
-from data_model import NewsList
+from news_model import NewsList
+from memory_model import MemoryContext
+from identity import user_namespace
+from ask_user import ask_decision
 
 model = ChatOpenAI(
     model=config.MODEL_NAME,
@@ -58,47 +66,105 @@ subagents = [
     },
 ]
 
+def protected_path(request):
+    """定义需要审批操作的路径"""
+    path = request.tool_call["args"].get("file_path", "")
+    try:
+        path = validate_path(path)
+    except ValueError:
+        return False
+    return path.startswith(("/history/", "/report/"))
+
 with SqliteStore.from_conn_string("news.db") as store:
     store.setup()  # 首次运行时建表，之后再调用不会重复建
+
+    # 创建线程号 用来中断恢复
+    configurable = {"configurable": {"thread_id": str(uuid.uuid4())}}
+
     agent = create_deep_agent(
         model=model,
+        # 定义工具
         tools=[internet_search, get_current_time],
+        # 定义系统提示词
         system_prompt=config.SYSTEM_PROMPT,
+        # 显式定义中间件
         middleware=[TodoListMiddleware()],
+        # 自定义上下文
+        context_schema=MemoryContext,
+        # 定义记忆文件路径
+        memory=["/memories/preferences.md"],
+        # 使用 SqliteStore 作为持久化存储
+        store=store,
+        # 定义后端存储 使用 CompositeBackend 组合多种后端
         backend=CompositeBackend(
             default=StateBackend(),            # 默认：临时存储
+            # 路由
             routes={
                 "/history/": StoreBackend(
-                    namespace=lambda rt: (
-                        (rt.server_info.user.identity,)
-                        if rt.server_info else
-                        ("local-user",)
-                    ),
+                    namespace=lambda rt: (*user_namespace(rt), "history"),
                 ),
-                "/report/": FilesystemBackend(root_dir="report", virtual_mode=True),
+                "/memories/": StoreBackend(
+                    namespace=lambda rt: (*user_namespace(rt), "memories"),
+                ),
+                "/report/": StoreBackend(
+                    namespace=lambda rt: (*user_namespace(rt), "report"),
+                ),
                 "/skills/": FilesystemBackend(root_dir="skills", virtual_mode=True),
             }
         ),
+        # 将 history、report 目录下的文件写入权限限制为中断模式，防止误操作
+        interrupt_on={
+            "write_file": {
+                "allowed_decisions": ["approve", "reject"], 
+                "when": protected_path
+            }, 
+            "edit_file": {
+                "allowed_decisions": ["approve", "reject"], 
+                "when": protected_path
+            }, 
+            "delete": {
+                "allowed_decisions": ["approve", "reject"], 
+                "when": protected_path
+            },
+        },
+        # 定义权限
         permissions=[
+            # 将 skills 只读
             FilesystemPermission(
                 operations=["write"],
                 paths=["/skills/**"],
                 mode="deny",
             ),
         ],
-        store=store,
+        # 因为要做中断恢复 所以要定义 checkpointer 获取线程 ID
+        checkpointer=MemorySaver(),
+        # 定义子 Agent 列表
         subagents=subagents,
     )
 
     result = agent.invoke(
         {"messages": [{"role": "user", "content": config.USER_PROMPT}]},
+        config=configurable,
+        version="v2",
     )
 
-print(result["messages"][-1].content)
-plan = result.get("todos")
-if plan:
-    print("Todo 列表：")
-    for item in plan:
-        print(f"  [{item['status']}] {item['content']}")
-else:
-    print("本次没有 todos 状态")
+    while result.interrupts:
+        interrupt_value = result.interrupts[0].value
+        action_requests = interrupt_value["action_requests"]
+        review_configs = interrupt_value["review_configs"]
+        config_map = {cfg["action_name"]: cfg for cfg in review_configs}
+
+        # 按顺序提供决策
+        decisions = []
+        for action in action_requests:
+            review_config = config_map[action["name"]]
+            args = action.get("arguments", action.get("args", {}))
+            decisions.append(ask_decision(action, review_config["allowed_decisions"]))
+
+        result = agent.invoke(
+            Command(resume={"decisions": decisions}),
+            config=configurable,
+            version="v2",
+        )
+
+print(result.value["messages"][-1].content)

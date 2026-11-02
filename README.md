@@ -17,9 +17,9 @@
 | 第 7 章 [Skills](https://datawhalechina.github.io/deepagents-in-action/chapters/ch07-skills/) | 已完成 |
 | 第 8 章 [长期记忆](https://datawhalechina.github.io/deepagents-in-action/chapters/ch08-long-term-memory/) | 已完成 |
 | 第 9 章 [Human-in-the-Loop](https://datawhalechina.github.io/deepagents-in-action/chapters/ch09-human-in-the-loop/) | 已完成 |
-| 第 10 至 16 章 | 未开始 |
+| 第 10 至 16 章 | 已跳过 |
 
-进度更新于 2026-10-29。
+进度更新于 2026-11-02。
 
 ## 与课程的对应
 
@@ -121,7 +121,13 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` 没有固定版本号。2026-10-17 验证时安装的版本为 deepagents 0.7.25、langchain 1.4.6、langchain-openai 1.7.2、langgraph 1.2.15、langgraph-checkpoint-sqlite 3.1.2、tavily-python 0.8.5。2026-11-02 验证后端服务时安装的版本为 langgraph-cli 0.4.40、langgraph-api 0.17.0、langgraph-runtime-inmem 0.37.0。
+`requirements.txt` 由 `requirements.in` 生成，固定全部依赖的版本，其中 deepagents 0.7.25、langchain 1.4.6、langchain-openai 1.7.2、langgraph 1.2.15、langgraph-checkpoint-sqlite 3.1.2、tavily-python 0.8.5、langgraph-cli 0.4.40、langgraph-api 0.17.0、langgraph-runtime-inmem 0.37.0。
+
+更新依赖时修改 `requirements.in`，再重新生成：
+
+```bash
+uv pip compile requirements.in --universal --python-version 3.11 --no-annotate -o requirements.txt
+```
 
 ## 配置
 
@@ -235,7 +241,66 @@ agentseek dev
 
 2026-11-02 在 Windows 11、Python 3.12.10、deepagents 0.7.25 上的验证结果：`ls` 正常返回，`news-categorizer` 加载 Skill 后把 2 条重复新闻合并为 1 条，完整的四步流水线在启用 `interrupt_on` 时运行通过，收集 20 条，查重后 20 条，旧闻比对剔除 1 条，历史记录从 10 条增至 29 条，生成 `/report/2026-11-02.md`。注释 `interrupt_on` 后，写入 `/report/` 不再暂停。
 
+## 可复现 Demo
+
+Demo 验证同一个应用综合使用 3 项能力：子 Agent 委派、按子 Agent 加载 Skill、用 Store 持久化历史记录和报告。输入固定为 `config.py` 的 `USER_PROMPT`。新闻内容每天变化，所以核对项只检查流程和写入结果。
+
+在干净克隆中运行，这时 `news.db` 为空。在已有的 `news.db` 上运行时，历史记录会继续追加，当天的报告会被覆盖。
+
+```powershell
+git clone https://github.com/ryukirin/ai-news-deep-agent.git
+cd ai-news-deep-agent
+python -m venv .venv
+agentseek task sync
+Copy-Item .env.example .env
+```
+
+填写 `.env` 的前四个变量，然后启动服务：
+
+```powershell
+agentseek doctor
+agentseek dev
+```
+
+另开一个终端，在项目根目录运行：
+
+```powershell
+uv run --no-project python demo.py
+```
+
+`agentseek task sync` 和 `uv run` 优先使用 `VIRTUAL_ENV` 指向的环境。运行前不要激活其他虚拟环境。
+
+`.venv` 中最长的文件（来自 anthropic 1.14.0）相对项目根目录的路径有 132 个字符。Windows 未启用长路径（`LongPathsEnabled=0`）时，项目根目录的路径不能超过 126 个字符，否则服务启动时报 `ModuleNotFoundError: No module named 'anthropic.types.beta...'`。
+
+`demo.py` 发送固定输入，等待运行结束后核对以下各项。全部通过时退出码为 0，否则为 1。
+
+| 核对项 | 通过条件 |
+| --- | --- |
+| 运行结束 | 线程状态为 `idle`，没有错误事件 |
+| 子 Agent | 主 Agent 首次委派的顺序为 `news-collector`、`news-categorizer`、`old-news-checker`、`report-generator` |
+| Skill | 2 个 SKILL.md 都在子 Agent 内用 `read_file` 读取 |
+| 历史记录 | `news.db` 中新增至少 1 条，每条格式为 `日期 \| 标题 \| 摘要` |
+| 历史记录路径 | `/history/` 下只有 `news_history.txt` |
+| 报告 | `news.db` 中写入了文件名含当天日期的非空报告 |
+
+2026-11-02 在 Windows 11、Python 3.12.10 上的运行结果，用时 2 分 13 秒：
+
+```text
+PASS  运行结束: 线程状态 idle，错误事件 0 个
+PASS  子 Agent: 委派顺序 news-collector -> news-categorizer -> old-news-checker -> report-generator
+PASS  Skill: 2 个 SKILL.md 都在子 Agent 内读取
+PASS  历史记录: 新增 10 条，格式不符 0 条
+PASS  历史记录路径: /history/ 下的文件 ['/news_history.txt']
+PASS  报告: 本次写入 ['/2026-11-02.md']
+
+6/6 项通过
+```
+
+核对结果依赖模型输出，个别项可能不通过。同一天的上一次运行中，模型把日期写成 `2026-10-30/31`，历史记录一项未通过。之后 history-check 的 SKILL.md 规定了日期格式。
+
 ## 已知限制
+
+- 同一天重复运行会覆盖 `/report/<日期>.md`，之前的版本无法恢复。
 
 - 搜索没有限定时间范围，结果中可能出现一周以前的新闻。
 - `NewsArticle.source` 只记录媒体名称，没有链接字段，报告中不含原文链接。

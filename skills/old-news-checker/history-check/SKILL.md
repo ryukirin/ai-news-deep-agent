@@ -16,6 +16,7 @@ description: 当检查当前新闻文章列表中是否有/history/news_history.
 ## news_history.txt写入格式
 一行一条新闻，格式为：
 日期 | 标题 | 摘要
+日期只写一个，格式为 YYYY-MM-DD。事件跨多天时写最早报道的日期。
 
 ## 示例
 过往新闻：公司A发布了新产品X，预计将于下个月上市。

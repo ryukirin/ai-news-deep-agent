@@ -1,0 +1,52 @@
+version = 2
+template = "deepagents/ai-news"
+name = "ai-news-deep-agent"
+description = "Backend-only AI news agent served by the LangGraph dev server."
+env_file = ".env"
+guide = "README.md"
+
+[tools]
+required = ["uv"]
+
+[paths]
+required = ["langgraph.json", "requirements.txt", "agent.py", "news_store.py", "skills"]
+
+[env.MODEL_NAME]
+required = true
+description = "Model name."
+
+[env.DEEPSEEK_API_KEY]
+required = true
+description = "API key of the OpenAI-compatible model service."
+
+[env.BASE_URL]
+required = true
+description = "Base URL of the OpenAI-compatible model service."
+
+[env.TAVILY_API_KEY]
+required = true
+description = "Tavily search API key."
+
+[services.langgraph]
+name = "LangGraph API"
+url = "http://127.0.0.1:2024"
+kind = "api"
+display = "default"
+primary = true
+description = "LangGraph dev server that runs the ai-news graph."
+tech = "langgraph"
+links = { docs = "https://docs.langchain.com/oss/python/langgraph/local-server", api_docs = "http://127.0.0.1:2024/docs" }
+
+[processes.langgraph]
+command = ["uv", "run", "--no-project", "langgraph", "dev", "--no-browser", "--allow-blocking", "--port", "2024"]
+
+[checks.langgraph]
+type = "http"
+target = "http://127.0.0.1:2024/ok"
+service = "langgraph"
+timeout = 2.0
+attempts = 3
+
+[tasks.sync]
+description = "Install Python dependencies into .venv."
+command = ["uv", "pip", "install", "-r", "requirements.txt"]

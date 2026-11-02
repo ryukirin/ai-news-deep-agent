@@ -75,13 +75,8 @@ def protected_path(request):
         return False
     return path.startswith(("/history/", "/report/"))
 
-with SqliteStore.from_conn_string("news.db") as store:
-    store.setup()  # 首次运行时建表，之后再调用不会重复建
-
-    # 创建线程号 用来中断恢复
-    configurable = {"configurable": {"thread_id": str(uuid.uuid4())}}
-
-    agent = create_deep_agent(
+def build_agent(store=None, checkpointer=None):
+    return create_deep_agent(
         model=model,
         # 定义工具
         tools=[internet_search, get_current_time],
@@ -93,7 +88,7 @@ with SqliteStore.from_conn_string("news.db") as store:
         context_schema=MemoryContext,
         # 定义记忆文件路径
         memory=["/memories/preferences.md"],
-        # 使用 SqliteStore 作为持久化存储
+        # 持久化存储
         store=store,
         # 定义后端存储 使用 CompositeBackend 组合多种后端
         backend=CompositeBackend(
@@ -112,21 +107,22 @@ with SqliteStore.from_conn_string("news.db") as store:
                 "/skills/": FilesystemBackend(root_dir="skills", virtual_mode=True),
             }
         ),
-        # 将 history、report 目录下的文件写入权限限制为中断模式，防止误操作
-        interrupt_on={
-            "write_file": {
-                "allowed_decisions": ["approve", "reject"], 
-                "when": protected_path
-            }, 
-            "edit_file": {
-                "allowed_decisions": ["approve", "reject"], 
-                "when": protected_path
-            }, 
-            "delete": {
-                "allowed_decisions": ["approve", "reject"], 
-                "when": protected_path
-            },
-        },
+        # 人工审批（history、report 写入前中断）仅作为第 9 章的实践实现，ai-news 不需要，所以注释掉
+        # 重新启用时取消下面 interrupt_on 的注释，protected_path 和末尾的恢复循环都保留着
+        # interrupt_on={
+        #     "write_file": {
+        #         "allowed_decisions": ["approve", "reject"],
+        #         "when": protected_path
+        #     },
+        #     "edit_file": {
+        #         "allowed_decisions": ["approve", "reject"],
+        #         "when": protected_path
+        #     },
+        #     "delete": {
+        #         "allowed_decisions": ["approve", "reject"],
+        #         "when": protected_path
+        #     },
+        # },
         # 定义权限
         permissions=[
             # 将 skills 只读
@@ -137,34 +133,46 @@ with SqliteStore.from_conn_string("news.db") as store:
             ),
         ],
         # 因为要做中断恢复 所以要定义 checkpointer 获取线程 ID
-        checkpointer=MemorySaver(),
+        checkpointer=checkpointer,
         # 定义子 Agent 列表
         subagents=subagents,
     )
 
-    result = agent.invoke(
-        {"messages": [{"role": "user", "content": config.USER_PROMPT}]},
-        config=configurable,
-        version="v2",
-    )
+# langgraph dev 加载这个图，checkpointer 和 store 由服务端提供
+agent = build_agent()
 
-    while result.interrupts:
-        interrupt_value = result.interrupts[0].value
-        action_requests = interrupt_value["action_requests"]
-        review_configs = interrupt_value["review_configs"]
-        config_map = {cfg["action_name"]: cfg for cfg in review_configs}
+if __name__ == "__main__":
+    with SqliteStore.from_conn_string("news.db") as store:
+        store.setup()  # 首次运行时建表，之后再调用不会重复建
 
-        # 按顺序提供决策
-        decisions = []
-        for action in action_requests:
-            review_config = config_map[action["name"]]
-            args = action.get("arguments", action.get("args", {}))
-            decisions.append(ask_decision(action, review_config["allowed_decisions"]))
+        # 创建线程号 用来中断恢复
+        configurable = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
-        result = agent.invoke(
-            Command(resume={"decisions": decisions}),
+        cli_agent = build_agent(store=store, checkpointer=MemorySaver())
+
+        result = cli_agent.invoke(
+            {"messages": [{"role": "user", "content": config.USER_PROMPT}]},
             config=configurable,
             version="v2",
         )
 
-print(result.value["messages"][-1].content)
+        while result.interrupts:
+            interrupt_value = result.interrupts[0].value
+            action_requests = interrupt_value["action_requests"]
+            review_configs = interrupt_value["review_configs"]
+            config_map = {cfg["action_name"]: cfg for cfg in review_configs}
+
+            # 按顺序提供决策
+            decisions = []
+            for action in action_requests:
+                review_config = config_map[action["name"]]
+                args = action.get("arguments", action.get("args", {}))
+                decisions.append(ask_decision(action, review_config["allowed_decisions"]))
+
+            result = cli_agent.invoke(
+                Command(resume={"decisions": decisions}),
+                config=configurable,
+                version="v2",
+            )
+
+    print(result.value["messages"][-1].content)

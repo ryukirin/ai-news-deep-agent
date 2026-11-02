@@ -1,6 +1,6 @@
 # ai-news-deep-agent
 
-用 [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview) 搭建的 AI 新闻助理。主 Agent 把收集、查重、旧闻比对、撰写报告四步依次委派给四个子 Agent。查重和旧闻比对的规则写在 `skills/` 下的 Skill 中。新闻用 Tavily 搜索。历史记录、报告和长期记忆按用户存在 SQLite 中，写入历史记录和报告前需要在终端确认。
+用 [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview) 搭建的 AI 新闻助理。主 Agent 把收集、查重、旧闻比对、撰写报告四步依次委派给四个子 Agent。查重和旧闻比对的规则写在 `skills/` 下的 Skill 中。新闻用 Tavily 搜索。历史记录、报告和长期记忆按用户存在 SQLite 中。
 
 本项目是 Datawhale 课程 [Deep Agents 实战](https://github.com/datawhalechina/deepagents-in-action) 的学习项目。
 
@@ -76,6 +76,8 @@
 | Checkpointer 与 `thread_id` | `MemorySaver`，每次运行生成新的 `thread_id` |
 | 用 `Command(resume=...)` 恢复 | `agent.py` 末尾的循环，决策由 `ask_user.py` 的 `ask_decision` 从命令行读取 |
 
+人工审批仅作为第 9 章的实践实现。ai-news 只写入历史记录和报告，不需要审批，所以 `agent.py` 中的 `interrupt_on` 已注释，默认不暂停。取消这段注释即可重新启用，`protected_path`、恢复循环和 `ask_user.py` 都保留着。
+
 课程示例之外的改动：
 
 - 搜索类别固定为新闻（`topic="news"`）。
@@ -91,6 +93,7 @@
 - 支持工具调用的 OpenAI 兼容模型服务及其 API Key。
 - [Tavily](https://tavily.com) API Key。
 - LangSmith API Key（可选，用于追踪）。
+- `agentseek dev` 另外需要 AgentSeek CLI（`uv tool install agentseek`）和 uv，均须在 `PATH` 中。验证版本为 agentseek 0.1.6、uv 0.13.0。
 
 ## 安装
 
@@ -118,7 +121,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` 没有固定版本号。2026-10-17 验证时安装的版本为 deepagents 0.7.25、langchain 1.4.6、langchain-openai 1.7.2、langgraph 1.2.15、langgraph-checkpoint-sqlite 3.1.2、tavily-python 0.8.5。
+`requirements.txt` 没有固定版本号。2026-10-17 验证时安装的版本为 deepagents 0.7.25、langchain 1.4.6、langchain-openai 1.7.2、langgraph 1.2.15、langgraph-checkpoint-sqlite 3.1.2、tavily-python 0.8.5。2026-11-02 验证后端服务时安装的版本为 langgraph-cli 0.4.40、langgraph-api 0.17.0、langgraph-runtime-inmem 0.37.0。
 
 ## 配置
 
@@ -150,7 +153,7 @@ python agent.py
 3. 委派 `old-news-checker` 与 `/history/news_history.txt` 中的历史新闻比对，剔除过往新闻，把新新闻追加到该文件。
 4. 委派 `report-generator` 撰写报告，文件名为当天日期，写入 `/report/`。
 
-`write_file`、`edit_file` 或 `delete` 的目标在 `/history/` 或 `/report/` 下时，运行暂停，终端打印工具名、参数和可选决策：
+运行过程中不暂停。重新启用 `interrupt_on` 后，`write_file`、`edit_file` 或 `delete` 的目标在 `/history/` 或 `/report/` 下时，运行暂停，终端打印工具名、参数和可选决策：
 
 ```text
 工具: write_file
@@ -200,6 +203,38 @@ with SqliteStore.from_conn_string("news.db") as store:
     print(item.value["content"])
 ```
 
+## 启动后端服务
+
+```bash
+agentseek doctor
+agentseek dev
+```
+
+在项目根目录运行。`agentseek dev` 按 `.agentseek/lifecycle.toml` 检查 `uv`、必需文件和 `.env` 中的前四个变量，然后执行 `uv run --no-project langgraph dev --no-browser --allow-blocking --port 2024`。`uv run` 使用项目根目录的 `.venv`，运行时不需要激活虚拟环境。服务只含后端，没有前端页面。
+
+| 地址 | 说明 |
+| --- | --- |
+| `http://127.0.0.1:2024` | LangGraph API，图的名称为 `ai-news`（见 `langgraph.json`） |
+| `http://127.0.0.1:2024/ok` | 健康检查，`agentseek doctor --live` 请求这个地址 |
+| `http://127.0.0.1:2024/docs` | API 文档 |
+
+依赖有变化时运行 `agentseek task sync`，等同于 `uv pip install -r requirements.txt`。
+
+后端服务与 `python agent.py` 的差异：
+
+| 项目 | `python agent.py` | `agentseek dev` |
+| --- | --- | --- |
+| 用户问题 | `config.py` 的 `USER_PROMPT` | 客户端在请求中传入，不读取 `USER_PROMPT` |
+| Store | `SqliteStore`（`news.db`） | `news_store.py` 的 `AsyncSqliteStore`（同一个 `news.db`） |
+| Checkpointer | `MemorySaver` | 服务端自带，数据在 `.langgraph_api/` |
+| 重新启用人工审批后 | `ask_user.py` 从终端读取决策 | 客户端通过 API 提交 `Command(resume=...)` |
+
+未鉴权时用户同样是 `local-user`，能读取 `python agent.py` 写入的历史记录、报告和记忆。
+
+`--allow-blocking` 关闭开发服务器的阻塞调用检测。deepagents 的权限检查在异步工具中同步调用 `Path.resolve()`，不加这个参数时 `ls` 报 `BlockingError`。这个参数只用于本地开发。
+
+2026-11-02 在 Windows 11、Python 3.12.10、deepagents 0.7.25 上的验证结果：`ls` 正常返回，`news-categorizer` 加载 Skill 后把 2 条重复新闻合并为 1 条，完整的四步流水线在启用 `interrupt_on` 时运行通过，收集 20 条，查重后 20 条，旧闻比对剔除 1 条，历史记录从 10 条增至 29 条，生成 `/report/2026-11-02.md`。注释 `interrupt_on` 后，写入 `/report/` 不再暂停。
+
 ## 已知限制
 
 - 搜索没有限定时间范围，结果中可能出现一周以前的新闻。
@@ -213,8 +248,10 @@ with SqliteStore.from_conn_string("news.db") as store:
 - 问题写死在 `config.py` 中，不支持命令行参数。
 - `news.db` 和 `skills/` 按启动目录的相对路径解析。在其他目录运行时，会在该目录下另建 `news.db`，并且一个 Skill 也加载不到（日志报 `path_not_found`）。
 - `memory=` 只加载 `/memories/preferences.md`，不会自动创建这个文件。Agent 自己写的记忆文件名由模型决定，2026-10-29 的运行写入了 `/memories/workflow_notes.md`，下次运行不会加载。
-- Checkpointer 是 `MemorySaver`，中断状态只在进程内存中。暂停时退出程序，这次运行无法恢复。
-- 恢复循环只处理 `result.interrupts` 中的第一个中断。多个子 Agent 并行写入、同时产生多个中断时，LangGraph 要求按中断 ID 分别提供恢复值，当前写法会报错。
+- 不经过审批时，模型写入的路径和内容没有人工检查。2026-11-02 的一次运行中，`old-news-checker` 曾尝试写入 `/history/_append_part1.txt`，而不是 `/history/news_history.txt`。
+- `news-collector` 的 10 条上限只写在提示词中，2026-11-02 的运行收集了 20 条。
+- 启用 `interrupt_on` 时，`python agent.py` 的 Checkpointer 是 `MemorySaver`，中断状态只在进程内存中。暂停时退出程序，这次运行无法恢复。
+- 启用 `interrupt_on` 时，恢复循环只处理 `result.interrupts` 中的第一个中断。多个子 Agent 并行写入、同时产生多个中断时，LangGraph 要求按中断 ID 分别提供恢复值，当前写法会报错。
 - `read_file` 默认读取 100 行。历史记录超过 100 行后，模型不分页读取时只比对前 100 行。
 - 历史记录中的日期有时是新闻发生的日期，有时是写入的日期。
 

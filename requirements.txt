@@ -3,4 +3,6 @@ deepagents
 python-dotenv
 tavily-python
 langgraph-checkpoint-sqlite
+langgraph-cli[inmem]
+colorama; sys_platform == "win32"
 # requires Python >= 3.11

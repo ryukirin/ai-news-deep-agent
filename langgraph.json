@@ -1,0 +1,12 @@
+{
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "ai-news": "./agent.py:agent"
+  },
+  "store": {
+    "path": "./news_store.py:generate_store"
+  },
+  "env": "./.env"
+}

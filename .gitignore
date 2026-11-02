@@ -3,4 +3,5 @@ venv/**/*
 .venv/
 __pycache__/
 news.db*
+.langgraph_api/
 report/*

@@ -1,6 +1,6 @@
 # ai-news-deep-agent
 
-用 [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview) 搭建的 AI 新闻助理。主 Agent 把收集、查重、旧闻比对、撰写报告四步依次委派给四个子 Agent。查重和旧闻比对的规则写在 `skills/` 下的 Skill 中。新闻用 Tavily 搜索。历史记录、报告和长期记忆按用户存在 SQLite 中。
+用 [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview) 搭建的 AI 新闻助理。主 Agent 把收集、查重、旧闻比对、撰写报告四步依次委派给四个子 Agent，报告写完后调用 `append_history` 把报告中使用的新闻追加到历史记录。查重和旧闻比对的规则写在 `skills/` 下的 Skill 中。新闻用 Tavily 搜索。历史记录、报告和长期记忆按用户存在 SQLite 中。
 
 本项目是 Datawhale 课程 [Deep Agents 实战](https://github.com/datawhalechina/deepagents-in-action) 的学习项目。
 
@@ -82,6 +82,8 @@
 
 - 搜索类别固定为新闻（`topic="news"`）。
 - 新增 `get_current_time` 工具，模型可以调用它获取当前日期和时间。
+- 新增 `append_history` 工具，把报告中使用的新闻追加到 `/history/news_history.txt`。每行格式须为 `YYYY-MM-DD | 标题 | 摘要`，有一行不符时整批不写入，返回格式错误。与已有内容完全相同的行跳过。工具通过 `ToolRuntime` 的 `store` 直接写入 Store，不经过 `write_file`。
+- `permissions` 同时拒绝写入 `/history/**`，子 Agent 继承这条规则。`write_file`、`edit_file`、`delete` 指向历史记录时返回 permission denied，历史记录只能通过 `append_history` 追加。
 - 环境变量、system prompt（`SYSTEM_PROMPT`）和用户问题（`USER_PROMPT`）统一放在 `config.py` 中，`.env` 由 `python-dotenv` 加载。
 - `StoreBackend` 使用 `SqliteStore`（`news.db`），替代课程示例中的 `InMemoryStore`，历史记录在多次运行之间保留。
 - `structured_model` 通过 `extra_body={"thinking": {"type": "disabled"}}` 关闭 DeepSeek 思考模式。思考模式下，结构化输出使用的 `tool_choice` 会返回 400。
@@ -156,8 +158,9 @@ python agent.py
 
 1. 委派 `news-collector` 收集 10 条新闻。
 2. 委派 `news-categorizer` 去除重复新闻。
-3. 委派 `old-news-checker` 与 `/history/news_history.txt` 中的历史新闻比对，剔除过往新闻，把新新闻追加到该文件。
+3. 委派 `old-news-checker` 与 `/history/news_history.txt` 中的历史新闻比对，剔除过往新闻。
 4. 委派 `report-generator` 撰写报告，文件名为当天日期，写入 `/report/`。
+5. 调用 `append_history`，把报告中使用的新闻追加到 `/history/news_history.txt`。
 
 运行过程中不暂停。重新启用 `interrupt_on` 后，`write_file`、`edit_file` 或 `delete` 的目标在 `/history/` 或 `/report/` 下时，运行暂停，终端打印工具名、参数和可选决策：
 
@@ -170,6 +173,8 @@ python agent.py
 
 输入 `approve` 执行这次调用。输入 `reject` 取消这次调用，之后提示输入拒绝原因（可留空），原因返回给模型。输入其他内容时要求重新输入。调用发生在子 Agent 内时同样会暂停。写入其他路径（包括 `/memories/`）不暂停。
 
+`/history/` 已禁止写入。`write_file`、`edit_file`、`delete` 指向 `/history/` 时仍会暂停，批准后返回 permission denied。`append_history` 不在 `interrupt_on` 中，调用时不暂停。
+
 子 Agent 的设置：
 
 | 子 Agent | system prompt | Skill | 返回格式 | 模型 | 搜索次数上限 |
@@ -179,7 +184,7 @@ python agent.py
 | `old-news-checker` | `OLD_NEWS_CHECKER_PROMPT` | `history-check` | `NewsList` | `structured_model` | 无 |
 | `report-generator` | `REPORT_GENERATOR_PROMPT` | 无 | 文本 | 与主 Agent 相同 | 无 |
 
-子 Agent 没有指定 `tools`，继承主 Agent 的 `internet_search` 和 `get_current_time`。
+子 Agent 的 `tools` 显式指定为 `internet_search` 和 `get_current_time`，不包含 `append_history`。
 
 2026-10-24 的一次运行用时 273 秒。`news-categorizer` 和 `old-news-checker` 都用 `read_file` 读取了自己的 SKILL.md。查重把 10 条新闻合并为 9 条，旧闻比对剔除 0 条，`old-news-checker` 把 9 条写入历史记录（58 条增至 67 条），生成 `report/2026-10-24.md`。
 
@@ -197,7 +202,7 @@ Agent 使用的路径与实际存储位置：
 
 用户由 `identity.py` 的 `user_namespace` 决定。`rt.server_info.user` 存在时用它的 `identity`，否则用 context 中的 `user_id`。`agent.py` 调用 `invoke` 时没有传 context，目前用户固定为 `local-user`。
 
-历史记录一行一条，格式为 `日期 | 标题 | 摘要`，由 history-check 的 SKILL.md 规定。
+历史记录一行一条，格式为 `日期 | 标题 | 摘要`，日期为单个 `YYYY-MM-DD`，由 `append_history` 在写入时校验。
 
 报告不再写入 `report/` 目录。在项目根目录用下面的代码读取某一天的报告：
 
@@ -283,20 +288,22 @@ uv run --no-project python demo.py
 | 历史记录路径 | `/history/` 下只有 `news_history.txt` |
 | 报告 | `news.db` 中写入了文件名含当天日期的非空报告 |
 
-2026-11-02 在 Windows 11、Python 3.12.10 上的运行结果，用时 2 分 13 秒：
+2026-11-03 在 Windows 11、Python 3.12.10 上的运行结果，用时 3 分 14 秒：
 
 ```text
 PASS  运行结束: 线程状态 idle，错误事件 0 个
 PASS  子 Agent: 委派顺序 news-collector -> news-categorizer -> old-news-checker -> report-generator
 PASS  Skill: 2 个 SKILL.md 都在子 Agent 内读取
-PASS  历史记录: 新增 10 条，格式不符 0 条
+PASS  历史记录: 新增 8 条，格式不符 0 条
 PASS  历史记录路径: /history/ 下的文件 ['/news_history.txt']
-PASS  报告: 本次写入 ['/2026-11-02.md']
+PASS  报告: 本次写入 ['/2026-11-03.md']
 
 6/6 项通过
 ```
 
-核对结果依赖模型输出，个别项可能不通过。同一天的上一次运行中，模型把日期写成 `2026-10-30/31`，历史记录一项未通过。之后 history-check 的 SKILL.md 规定了日期格式。
+这次运行中，主 Agent 在报告写完后调用 1 次 `append_history`，传入 8 条，全部写入。没有对 `/history/` 调用 `write_file`、`edit_file` 或 `delete`。
+
+核对结果依赖模型输出，个别项可能不通过。2026-11-02 的一次运行中，模型把日期写成 `2026-10-30/31`，历史记录一项未通过。日期格式现由 `append_history` 校验，格式不符的行不写入。
 
 ## 已知限制
 
@@ -305,7 +312,7 @@ PASS  报告: 本次写入 ['/2026-11-02.md']
 - 搜索没有限定时间范围，结果中可能出现一周以前的新闻。
 - `NewsArticle.source` 只记录媒体名称，没有链接字段，报告中不含原文链接。
 - 只有 `news-collector` 限制了搜索次数，主 Agent 和其他子 Agent 调用 `internet_search` 没有上限。
-- 写入历史记录的要求只写在 history-check 的 SKILL.md 中。`old-news-checker` 没有读取 SKILL.md 时不会写入历史记录。
+- 写入历史记录依赖主 Agent 按 `USER_PROMPT` 第 5 步调用 `append_history`，没有调用时不写入。
 - 历史记录没有来源字段。摘要中有时会混入比对结论，比如“边界保留、降权”。
 - 主 Agent 没有配置 `skills`，但能通过 `/skills/` 路由直接读取 SKILL.md。2026-10-24 的运行中，主 Agent 在委派前读了两个 SKILL.md。
 - 最终回答中的条数由模型自报，可能与 `news.db` 不一致。2026-10-24 的运行自报历史记录“现共 68 行”，`news.db` 中实际非空行为 67 行。
@@ -313,7 +320,7 @@ PASS  报告: 本次写入 ['/2026-11-02.md']
 - 问题写死在 `config.py` 中，不支持命令行参数。
 - `news.db` 和 `skills/` 按启动目录的相对路径解析。在其他目录运行时，会在该目录下另建 `news.db`，并且一个 Skill 也加载不到（日志报 `path_not_found`）。
 - `memory=` 只加载 `/memories/preferences.md`，不会自动创建这个文件。Agent 自己写的记忆文件名由模型决定，2026-10-29 的运行写入了 `/memories/workflow_notes.md`，下次运行不会加载。
-- 不经过审批时，模型写入的路径和内容没有人工检查。2026-11-02 的一次运行中，`old-news-checker` 曾尝试写入 `/history/_append_part1.txt`，而不是 `/history/news_history.txt`。
+- 不经过审批时，模型写入 `/report/` 和 `/memories/` 的路径和内容没有人工检查。
 - `news-collector` 的 10 条上限只写在提示词中，2026-11-02 的运行收集了 20 条。
 - 启用 `interrupt_on` 时，`python agent.py` 的 Checkpointer 是 `MemorySaver`，中断状态只在进程内存中。暂停时退出程序，这次运行无法恢复。
 - 启用 `interrupt_on` 时，恢复循环只处理 `result.interrupts` 中的第一个中断。多个子 Agent 并行写入、同时产生多个中断时，LangGraph 要求按中断 ID 分别提供恢复值，当前写法会报错。

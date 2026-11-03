@@ -9,7 +9,7 @@ from deepagents import FilesystemPermission, create_deep_agent
 from deepagents.backends.utils import validate_path
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend, FilesystemBackend
 
-from tool import internet_search, get_current_time
+from tool import internet_search, get_current_time, append_history
 import config
 
 from news_model import NewsList
@@ -42,6 +42,7 @@ subagents = [
             ToolCallLimitMiddleware(tool_name="internet_search", run_limit=10, exit_behavior="continue"),
         ],
         "response_format": NewsList,
+        "tools": [internet_search, get_current_time],
     },
     {
         "name": "news-categorizer",
@@ -50,6 +51,7 @@ subagents = [
         "model": structured_model,
         "skills": ["/skills/news-categorizer/"],
         "response_format": NewsList,
+        "tools": [internet_search, get_current_time],
     },
     {
         "name": "old-news-checker",
@@ -58,11 +60,13 @@ subagents = [
         "model": structured_model,
         "skills": ["/skills/old-news-checker/"],
         "response_format": NewsList,
+        "tools": [internet_search, get_current_time],
     },
     {
         "name": "report-generator",
         "description": "生成新闻报告",  
         "system_prompt": config.REPORT_GENERATOR_PROMPT,
+        "tools": [internet_search, get_current_time],
     },
 ]
 
@@ -79,7 +83,7 @@ def build_agent(store=None, checkpointer=None):
     return create_deep_agent(
         model=model,
         # 定义工具
-        tools=[internet_search, get_current_time],
+        tools=[internet_search, get_current_time, append_history],
         # 定义系统提示词
         system_prompt=config.SYSTEM_PROMPT,
         # 显式定义中间件
@@ -125,10 +129,10 @@ def build_agent(store=None, checkpointer=None):
         # },
         # 定义权限
         permissions=[
-            # 将 skills 只读
+            # 将 skills 只读 同时将 history 限定为只有 append_history 工具可以写入
             FilesystemPermission(
                 operations=["write"],
-                paths=["/skills/**"],
+                paths=["/skills/**", "/history/**"],
                 mode="deny",
             ),
         ],

@@ -13,6 +13,7 @@ USER_PROMPT = """
 2. 将收集到的新闻交给news-categorizer进行查重，没有重复的就进行下一步
 3. 将整理好的新闻交给old-news-checker检查是否属于过往新闻，没有过往新闻就进行下一步
 4. 将撰写报告的工作委派给report-generator，写成一份报告{当天日期}.md，存入report/文件夹中
+5. 调用append_history，把报告中使用的新闻追加到历史记录存入/history/news_history.txt文件中，确保过往新闻列表的完整性
 """
 
 NEWS_COLLECTOR_PROMPT = "你是新闻收集专家。搜索相关新闻并整理，返回结构化的新闻文章。最多收集10条新闻。"

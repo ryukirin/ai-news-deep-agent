@@ -1,9 +1,9 @@
 from pydantic import BaseModel, Field
 
 class NewsArticle(BaseModel):
-    title: str = Field(description="新闻文章标题")
-    content: str = Field(description="新闻文章内容")
-    source: str = Field(description="新闻文章来源")
+    title: str = Field(description="Title of the news article")
+    content: str = Field(description="Content of the news article")
+    source: str = Field(description="Source of the news article")
 
 class NewsList(BaseModel):
-    articles: list[NewsArticle] = Field(description="新闻文章列表")
+    articles: list[NewsArticle] = Field(description="List of news articles")

@@ -41,16 +41,16 @@ def append_history(lines: list[str], runtime: ToolRuntime) -> str:
     lines = [line.strip() for line in lines if line.strip()]
     bad = [line for line in lines if not HISTORY_LINE.match(line)]
     if bad:
-        return f"格式不符，未写入任何一条: {bad}"
+        return f"Invalid format, nothing was written: {bad}"
 
     namespace = (*user_namespace(runtime), "history")
     item = runtime.store.get(namespace, HISTORY_FILE)
     old = item.value["content"] if item else ""
     old_lines = old if isinstance(old, list) else old.splitlines()
 
-    # 已存在的行跳过，从 checkpoint 恢复时重复调用不会写入重复记录
+    # Skip lines that already exist, so a repeated call after resuming from a checkpoint does not write duplicates
     new = [line for line in lines if line not in old_lines]
     content = "\n".join([*old_lines, *new])
     file_data = update_file_data(item.value, content) if item else create_file_data(content)
     runtime.store.put(namespace, HISTORY_FILE, file_data)
-    return f"追加 {len(new)} 条，跳过已存在的 {len(lines) - len(new)} 条"
+    return f"Appended {len(new)} lines, skipped {len(lines) - len(new)} existing lines"

@@ -26,7 +26,7 @@ def check(name, ok, detail):
 
 
 def read_store(prefix):
-    """只读打开 news.db，返回 {键: 文本内容}"""
+    """Open news.db read-only and return {key: text content}."""
     with sqlite3.connect("file:news.db?mode=ro", uri=True) as conn:
         rows = conn.execute("select key, value from store where prefix = ?", (prefix,)).fetchall()
     files = {}
@@ -37,7 +37,7 @@ def read_store(prefix):
 
 
 def find_tool_calls(value):
-    """从一条 updates 事件中找出所有工具调用"""
+    """Find all tool calls in one updates event."""
     if isinstance(value, dict):
         calls = list(value.get("tool_calls") or [])
         for item in value.values():
@@ -49,13 +49,13 @@ def find_tool_calls(value):
 
 
 def run_agent():
-    """发送固定输入，返回线程状态、错误事件、子 Agent 委派顺序和子 Agent 内读取的文件"""
+    """Send the fixed input. Return the thread status, error events, subagent delegation order and files read inside subagents."""
     client = get_sync_client(url=URL, timeout=900)
     thread_id = client.threads.create()["thread_id"]
-    print(f"线程: {thread_id}")
+    print(f"Thread: {thread_id}")
 
     errors = []
-    tasks = {}  # 用工具调用 ID 去重，dict 保留首次出现的顺序
+    tasks = {}  # Deduplicate by tool call ID. dict keeps first-seen order.
     subagent_reads = set()
     for part in client.runs.stream(
         thread_id,
@@ -68,7 +68,7 @@ def run_agent():
             errors.append(part.data)
         if not part.event.startswith("updates"):
             continue
-        in_subagent = "|" in part.event  # 子图事件的格式为 updates|<命名空间>
+        in_subagent = "|" in part.event  # Subgraph events are named updates|<namespace>
         for call in find_tool_calls(part.data):
             if not in_subagent and call["name"] == "task":
                 tasks[call["id"]] = call["args"].get("subagent_type")
@@ -87,26 +87,26 @@ def main():
 
     status, errors, tasks, subagent_reads = run_agent()
 
-    check("运行结束", status == "idle" and not errors, f"线程状态 {status}，错误事件 {len(errors)} 个")
+    check("Run finished", status == "idle" and not errors, f"thread status {status}, {len(errors)} error events")
 
     first_seen = list(dict.fromkeys(tasks))
-    check("子 Agent", first_seen == SUBAGENTS, f"委派顺序 {' -> '.join(map(str, first_seen))}")
+    check("Subagents", first_seen == SUBAGENTS, f"delegation order {' -> '.join(map(str, first_seen))}")
 
     missing = [path for path in SKILLS if path not in subagent_reads]
-    check("Skill", not missing, f"未读取 {missing}" if missing else "2 个 SKILL.md 都在子 Agent 内读取")
+    check("Skills", not missing, f"not read: {missing}" if missing else "both SKILL.md files read inside subagents")
 
     history = read_store("local-user.history")
     new_lines = history.get("/news_history.txt", "").splitlines()[len(history_before.splitlines()):]
     new_lines = [line for line in new_lines if line.strip()]
     bad_lines = [line for line in new_lines if not HISTORY_LINE.match(line.strip())]
-    check("历史记录", bool(new_lines) and not bad_lines, f"新增 {len(new_lines)} 条，格式不符 {len(bad_lines)} 条")
-    check("历史记录路径", list(history) == ["/news_history.txt"], f"/history/ 下的文件 {list(history)}")
+    check("History", bool(new_lines) and not bad_lines, f"{len(new_lines)} lines added, {len(bad_lines)} with invalid format")
+    check("History path", list(history) == ["/news_history.txt"], f"files under /history/: {list(history)}")
 
     report = read_store("local-user.report")
     written = [key for key, text in report.items() if today in key and text.strip() and text != report_before.get(key)]
-    check("报告", bool(written), f"本次写入 {written}")
+    check("Report", bool(written), f"written in this run: {written}")
 
-    print(f"\n{sum(results)}/{len(results)} 项通过")
+    print(f"\n{sum(results)}/{len(results)} checks passed")
     sys.exit(0 if all(results) else 1)
 
 

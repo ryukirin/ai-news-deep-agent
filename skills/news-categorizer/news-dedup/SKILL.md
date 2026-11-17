@@ -1,29 +1,30 @@
 ---
 name: news-dedup
-description: 当检查当前新闻文章列表中是否有重复新闻时使用。把重复新闻从当前新闻文章列表中剔除。
+description: Use when checking whether the current list of news articles contains duplicates. Removes duplicate news from the current list.
 ---
 
 # news-dedup
 
-## 步骤
+## Steps
 
-1. 将当前新闻文章列表进行比较，检查是否存在重复或相似的新闻内容。
-2. 如果当前新闻文章列表中有重复的新闻内容，则从新闻文章列表中删掉质量比较低的重复新闻。
-3. 返回没有重复新闻的结构化的新闻文章列表。
+1. Compare the articles in the current list and check for duplicate or similar news content.
+2. If the current list contains duplicate news content, remove the lower-quality duplicates from the list.
+3. Return the structured list of news articles with no duplicates.
 
-## 示例
-新闻1：公司A发布了新产品X，预计将于下个月上市。
-新闻2：公司A的X，计划在下个月上市。其特性和功能也被介绍。
-这两条新闻内容都属于同一条新闻，应该被视为重复新闻。根据质量比较低的原则，新闻2的内容更丰富，因此保留新闻2，删除新闻1。
+## Examples
 
-新闻3：公司A的X。其市场定位和销售策略也进行了详细介绍。
-这条新闻与新闻1和新闻2内容相似，但侧重点不同，因此不被视为重复新闻。
+News 1: Company A released new product X, expected to launch next month.
+News 2: Company A's X is planned to launch next month. Its features and functions are also described.
+Both articles cover the same story and count as duplicates. The lower-quality one is removed. News 2 has richer content, so keep News 2 and remove News 1.
 
-新闻4：公司A的新产品X的特性和功能。
-这条新闻需要与新闻1和新闻2进行比较，如果内容相似度较高，侧重点一样，也应该被视为重复新闻。质量差不多的情况下，随机保留其中一条新闻即可。
+News 3: Company A's X. Its market positioning and sales strategy are described in detail.
+This article is similar to News 1 and News 2 but has a different focus, so it is not a duplicate.
 
-## 边界情况
+News 4: Features and functions of Company A's new product X.
+Compare this article with News 1 and News 2. If the content is highly similar and the focus is the same, it also counts as a duplicate. When the quality is about the same, keep any one of them.
 
-- 如果当前新闻文章列表为空，则返回空列表。
-- 如果当前新闻文章列表中所有新闻都与其他新闻重复，则返回单一新闻文章。
-- 如果当前新闻文章列表中只有一条新闻，则直接返回该新闻。
+## Edge cases
+
+- If the current list is empty, return an empty list.
+- If every article in the current list duplicates another one, return a single article.
+- If the current list contains only one article, return it as is.

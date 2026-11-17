@@ -1,4 +1,4 @@
-# 暂时全部以 local-user 作为用户身份
+# For now every user is local-user
 def user_namespace(rt):
     if rt.server_info and rt.server_info.user:
         return (rt.server_info.user.identity,)

@@ -23,7 +23,7 @@ model = ChatOpenAI(
     base_url=config.BASE_URL,
 )
 
-# DeepSeek 思考模式不支持 tool_choice="required"，带 response_format 的子 Agent 改用非思考模式
+# DeepSeek thinking mode does not support tool_choice="required", so subagents with response_format use non-thinking mode
 structured_model = ChatOpenAI(
     model=config.MODEL_NAME,
     api_key=config.DEEPSEEK_API_KEY,
@@ -31,11 +31,11 @@ structured_model = ChatOpenAI(
     extra_body={"thinking": {"type": "disabled"}},
 )
 
-# 定义子 Agent 列表 未指定 model / tools 时自动继承主 Agent 的模型和工具
+# Subagents. A subagent without model / tools inherits them from the main agent.
 subagents = [
     {
         "name": "news-collector",
-        "description": "从多个来源收集相关新闻",
+        "description": "Collects relevant news from multiple sources",
         "system_prompt": config.NEWS_COLLECTOR_PROMPT,
         "model": structured_model,
         "middleware": [
@@ -46,7 +46,7 @@ subagents = [
     },
     {
         "name": "news-categorizer",
-        "description": "对收集到的新闻进行分类和整理",
+        "description": "Categorizes and organizes the collected news",
         "system_prompt": config.NEWS_CATEGORIZER_PROMPT,
         "model": structured_model,
         "skills": ["/skills/news-categorizer/"],
@@ -55,7 +55,7 @@ subagents = [
     },
     {
         "name": "old-news-checker",
-        "description": "检查是否属于过往新闻",
+        "description": "Checks whether news has already been reported",
         "system_prompt": config.OLD_NEWS_CHECKER_PROMPT,
         "model": structured_model,
         "skills": ["/skills/old-news-checker/"],
@@ -64,14 +64,14 @@ subagents = [
     },
     {
         "name": "report-generator",
-        "description": "生成新闻报告",  
+        "description": "Writes the news report",
         "system_prompt": config.REPORT_GENERATOR_PROMPT,
         "tools": [internet_search, get_current_time],
     },
 ]
 
 def protected_path(request):
-    """定义需要审批操作的路径"""
+    """Return True when the call targets a path that requires approval."""
     path = request.tool_call["args"].get("file_path", "")
     try:
         path = validate_path(path)
@@ -82,22 +82,22 @@ def protected_path(request):
 def build_agent(store=None, checkpointer=None):
     return create_deep_agent(
         model=model,
-        # 定义工具
+        # Tools
         tools=[internet_search, get_current_time, append_history],
-        # 定义系统提示词
+        # System prompt
         system_prompt=config.SYSTEM_PROMPT,
-        # 显式定义中间件
+        # Middleware, added explicitly
         middleware=[TodoListMiddleware()],
-        # 自定义上下文
+        # Runtime context schema
         context_schema=MemoryContext,
-        # 定义记忆文件路径
+        # Memory file paths
         memory=["/memories/preferences.md"],
-        # 持久化存储
+        # Persistent store
         store=store,
-        # 定义后端存储 使用 CompositeBackend 组合多种后端
+        # Backend. CompositeBackend combines several backends.
         backend=CompositeBackend(
-            default=StateBackend(),            # 默认：临时存储
-            # 路由
+            default=StateBackend(),            # Default: ephemeral storage
+            # Routes
             routes={
                 "/history/": StoreBackend(
                     namespace=lambda rt: (*user_namespace(rt), "history"),
@@ -111,8 +111,9 @@ def build_agent(store=None, checkpointer=None):
                 "/skills/": FilesystemBackend(root_dir="skills", virtual_mode=True),
             }
         ),
-        # 人工审批（history、report 写入前中断）仅作为第 9 章的实践实现，ai-news 不需要，所以注释掉
-        # 重新启用时取消下面 interrupt_on 的注释，protected_path 和末尾的恢复循环都保留着
+        # Human approval (interrupt before writing to history or report) is only an exercise for Chapter 9.
+        # ai-news does not need it, so it is commented out. To re-enable it, uncomment interrupt_on below.
+        # protected_path and the resume loop at the end of this file are kept.
         # interrupt_on={
         #     "write_file": {
         #         "allowed_decisions": ["approve", "reject"],
@@ -127,29 +128,29 @@ def build_agent(store=None, checkpointer=None):
         #         "when": protected_path
         #     },
         # },
-        # 定义权限
+        # Permissions
         permissions=[
-            # 将 skills 只读 同时将 history 限定为只有 append_history 工具可以写入
+            # skills is read-only, and history can only be written by the append_history tool
             FilesystemPermission(
                 operations=["write"],
                 paths=["/skills/**", "/history/**"],
                 mode="deny",
             ),
         ],
-        # 因为要做中断恢复 所以要定义 checkpointer 获取线程 ID
+        # Resuming after an interrupt needs a checkpointer keyed by thread ID
         checkpointer=checkpointer,
-        # 定义子 Agent 列表
+        # Subagents
         subagents=subagents,
     )
 
-# langgraph dev 加载这个图，checkpointer 和 store 由服务端提供
+# langgraph dev loads this graph. The server provides the checkpointer and store.
 agent = build_agent()
 
 if __name__ == "__main__":
     with SqliteStore.from_conn_string("news.db") as store:
-        store.setup()  # 首次运行时建表，之后再调用不会重复建
+        store.setup()  # Creates tables on the first run. Later calls do not recreate them.
 
-        # 创建线程号 用来中断恢复
+        # Thread ID used to resume after an interrupt
         configurable = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
         cli_agent = build_agent(store=store, checkpointer=MemorySaver())
@@ -166,7 +167,7 @@ if __name__ == "__main__":
             review_configs = interrupt_value["review_configs"]
             config_map = {cfg["action_name"]: cfg for cfg in review_configs}
 
-            # 按顺序提供决策
+            # Provide decisions in order
             decisions = []
             for action in action_requests:
                 review_config = config_map[action["name"]]

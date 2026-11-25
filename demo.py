@@ -16,6 +16,7 @@ SKILLS = [
     "/skills/old-news-checker/history-check/SKILL.md",
 ]
 HISTORY_LINE = re.compile(r"^\d{4}-\d{2}-\d{2} \| .+ \| .+$")
+LINK = re.compile(r"\]\((https?://[^)\s]+)\)")
 
 results = []
 
@@ -105,6 +106,9 @@ def main():
     report = read_store("local-user.report")
     written = [key for key, text in report.items() if today in key and text.strip() and text != report_before.get(key)]
     check("Report", bool(written), f"written in this run: {written}")
+
+    links = {url for key in written for url in LINK.findall(report[key])}
+    check("Report links", bool(links), f"{len(links)} links to original articles")
 
     print(f"\n{sum(results)}/{len(results)} checks passed")
     sys.exit(0 if all(results) else 1)

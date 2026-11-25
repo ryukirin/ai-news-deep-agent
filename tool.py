@@ -1,4 +1,6 @@
 import re
+from typing import Literal
+
 import config
 from tavily import TavilyClient
 
@@ -13,18 +15,28 @@ HISTORY_LINE = re.compile(r"^\d{4}-\d{2}-\d{2} \| .+ \| .+$")
 tavily_client = TavilyClient(api_key=config.TAVILY_API_KEY)
 
 
-def internet_search(query: str, max_results: int = 5) -> dict:
-    """Run a web search for the given query.
+def internet_search(
+    query: str,
+    max_results: int = 5,
+    time_range: Literal["day", "week", "month"] = "day",
+) -> dict:
+    """Run a news search for the given query.
 
     Args:
         query: The search query string.
         max_results: Maximum number of results to return.
+        time_range: How far back to search. Use "week" or "month" only when "day" returns too few results.
     """
-    return tavily_client.search(
-        query, 
-        max_results=max_results, 
-        topic="news",
-    )
+    try:
+        return tavily_client.search(
+            query,
+            max_results=max_results,
+            topic="news",
+            time_range=time_range,
+        )
+    except Exception as e:
+        # Return the error to the model instead of stopping the whole run
+        return {"error": f"{type(e).__name__}: {e}", "results": []}
 
 def get_current_time() -> str:
     """Get the current time as a string."""
